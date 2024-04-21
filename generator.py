@@ -1,59 +1,126 @@
 import subprocess
 
 
-def main():
-    
-    """
-    This is the generator code. It should take in the MF structure and generate the code
-    needed to run the query. That generated code should be saved to a 
-    file (e.g. _generated.py) and then run.
-    """
+def read_file():
     S = []
     N = []
     V = []
     F = []
     SIGMA = []
     G = []
+    try:
+        with open('input1.txt', 'r') as file:
+            # Read lines from the file
+            for line in file:
+                # Split each line at the colon
+                parts = line.strip().split(':')
+                if len(parts) == 2:
+                    # Extract key and value
+                    key = parts[0].strip()
+                    value = parts[1].strip().split(',')
 
-    with open('input1.txt', 'r') as file:
-    # Read lines from the file
-        for line in file:
-            # Split each line at the colon
-            parts = line.strip().split(':')
-            if len(parts) == 2:
-                # Extract key and value
-                key = parts[0].strip()
-                value = parts[1].strip().split(',')
+                    # Assign value to corresponding variable
+                    if key == "SELECT ATTRIBUTE(S)":
+                        S = value
+                    elif key == "NUMBER OF GROUPING VARIABLES(n)":
+                        N = value
+                    elif key == "GROUPING ATTRIBUTES(V)":
+                        V = value
+                    elif key == "F-VECT([F])":
+                        F = value
+                    elif key == "SELECT CONDITION-VECT([SIGMA])":
+                        SIGMA = value
+                    elif key == "HAVING_CONDITION(G)":
+                        G = value
 
-                # Assign value to corresponding variable
-                if key == "SELECT ATTRIBUTE(S)":
-                    S = value
-                elif key == "NUMBER OF GROUPING VARIABLES(n)":
-                    N = value
-                elif key == "GROUPING ATTRIBUTES(V)":
-                    V = value
-                elif key == "F-VECT([F])":
-                    F = value
-                elif key == "SELECT CONDITION-VECT([SIGMA])":
-                    SIGMA = value
-                elif key == "HAVING_CONDITION(G)":
-                    G = value
+    except FileNotFoundError:
+        print("File Not Found")
 
-    print("S:", S)
-    print("N:", N)
-    print("V:", V)
-    print("F:", F)
-    print("SIGMA:", SIGMA)
-    print("G:", G)
 
-    #应该要把这个弄到生成的文件里
-    class H:
-        attributes = S
-        number_of_grouping_variables = int(N[0])
-        grouping_attributes = V
-        f_vect = F
-        select_condition = SIGMA
-        having_condition = G
+def readI_inputs():
+    print("Please enter all arguments of Phi operator")
+
+    select_attributes = input("Enter SELECT ATTRIBUTE(S) (e.g., cust, 1_sum_quant, 2_sum_quant, 3_sum_quant): ")
+    number_of_grouping_variables = input("Enter NUMBER OF GROUPING VARIABLES(n) (e.g., 3): ")
+    grouping_attributes = input("Enter GROUPING ATTRIBUTES(V) (e.g., cust): ")
+    f_vect = input("Enter F-VECT([F]) (e.g., 1_sum_quant, 1_avg_quant, 2_sum_quant, 3_sum_quant, 3_avg_quant): ")
+    select_condition_vect = input("Enter SELECT CONDITION-VECT([σ]) (e.g., 1.state='NY', 2.state='NJ', 3.state='CT'): ")
+    having_condition = input(
+        "Enter HAVING_CONDITION(G) (e.g., 1_sum_quant > 2 * 2_sum_quant or 1_avg_quant > 3_avg_quant): ")
+
+    return {
+        'SELECT_ATTRIBUTE(S)': select_attributes,
+        'NUMBER_OF_GROUPING_VARIABLES(n)': number_of_grouping_variables,
+        'GROUPING_ATTRIBUTES(V)': grouping_attributes,
+        'F-VECT([F])': f_vect,
+        'SELECT_CONDITION-VECT([σ])': select_condition_vect,
+        'HAVING_CONDITION(G)': having_condition
+    }
+
+
+def get_arguments():
+    res = input("Enter type of argument process either from 'file' or 'manually': ")
+    if res == 'file':
+        return read_file()
+    elif res == 'manually':
+        return readI_inputs()
+    else:
+        print("Invalid Input")
+        return get_arguments()
+
+
+def check_arguments():
+    phi_args = get_arguments()
+    if phi_args is not None:
+        print("Phi Arguments: ", phi_args)
+        return phi_args
+
+
+def get_htable(file_path):
+
+    htable = {}
+
+    try:
+        with open(file_path, 'r') as file:
+            contents = file.read().split('\n')
+
+        for idx, line in enumerate(contents):
+            line = line.strip()
+            if line == 'SELECT ATTRIBUTE(S):':
+                htable['select'] = contents[idx + 1].strip()
+            elif line == 'NUMBER OF GROUPING VARIABLES(n):':
+                htable['groupingVariables'] = int(contents[idx + 1].strip())
+            elif line == 'GROUPING ATTRIBUTES(V):':
+                htable['groupingAttributes'] = contents[idx + 1].strip()
+            elif line == 'F-VECT([F]):':
+                htable['listOfAggregateFuncs'] = [func.strip().lower() for func in contents[idx + 1].split(',')]
+            elif line == 'SELECT CONDITION-VECT([C]):':
+                conditions = []
+                idx_t = idx + 1
+                while idx_t < len(contents) and contents[idx_t] != 'HAVING CLAUSE (G):':
+                    if contents[idx_t].strip():
+                        conditions.append(contents[idx_t].strip())
+                    idx_t += 1
+                htable['selectConditionVector'] = conditions
+            elif line == 'HAVING CLAUSE (G):':
+                htable['havingClause'] = contents[idx + 1].strip()
+
+    except FileNotFoundError:
+        print(f"Error: File '{file_path}' not found.")
+    except ValueError:
+        print("Error: Invalid data format. Ensure numeric fields are correct.")
+    except Exception as e:
+        print(f"Unexpected error occurred: {e}")
+
+    return htable
+
+
+def main():
+    """
+    This is the generator code. It should take in the MF structure and generate the code
+    needed to run the query. That generated code should be saved to a
+    file (e.g. _generated.py) and then run.
+    """
 
     body = """
     for row in cur:
@@ -78,21 +145,22 @@ def query():
     user = os.getenv('USER')
     password = os.getenv('PASSWORD')
     dbname = os.getenv('DBNAME')
-    
+
     conn = psycopg2.connect("dbname="+dbname+" user="+user+" password="+password,
                             cursor_factory=psycopg2.extras.DictCursor)
+
     cur = conn.cursor()
-    #cur.execute("SELECT * FROM sales")
-    
+    cur.execute("SELECT * FROM sales")
+
     _global = []
     {body}
-    
+
     return tabulate.tabulate(_global,
                         headers="keys", tablefmt="psql")
 
 def main():
     print(query())
-    
+
 if "__main__" == __name__:
     main()
     """
@@ -105,3 +173,5 @@ if "__main__" == __name__:
 
 if "__main__" == __name__:
     main()
+
+

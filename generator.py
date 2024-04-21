@@ -106,7 +106,7 @@ def get_htable(file_path):
                 htable['havingClause'] = contents[index + 1].strip()
 
     except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.")
+        print(f"Error: File '{file}' not found.")
     except ValueError:
         print("Error: Invalid data format. Ensure numeric fields are correct.")
     except Exception as e:

@@ -84,26 +84,26 @@ def get_htable(file_path):
         with open(file_path, 'r') as file:
             contents = file.read().split('\n')
 
-        for idx, line in enumerate(contents):
+        for index, line in enumerate(contents):
             line = line.strip()
             if line == 'SELECT ATTRIBUTE(S):':
-                htable['select'] = contents[idx + 1].strip()
+                htable['select'] = contents[index + 1].strip()
             elif line == 'NUMBER OF GROUPING VARIABLES(n):':
-                htable['groupingVariables'] = int(contents[idx + 1].strip())
+                htable['groupingVariables'] = int(contents[index + 1].strip())
             elif line == 'GROUPING ATTRIBUTES(V):':
-                htable['groupingAttributes'] = contents[idx + 1].strip()
+                htable['groupingAttributes'] = contents[index + 1].strip()
             elif line == 'F-VECT([F]):':
-                htable['listOfAggregateFuncs'] = [func.strip().lower() for func in contents[idx + 1].split(',')]
+                htable['listOfAggregateFuncs'] = [func.strip().lower() for func in contents[index + 1].split(',')]
             elif line == 'SELECT CONDITION-VECT([C]):':
                 conditions = []
-                idx_t = idx + 1
-                while idx_t < len(contents) and contents[idx_t] != 'HAVING CLAUSE (G):':
-                    if contents[idx_t].strip():
-                        conditions.append(contents[idx_t].strip())
-                    idx_t += 1
+                index_x = index + 1
+                while index_x < len(contents) and contents[index_x] != 'HAVING CLAUSE (G):':
+                    if contents[index_x].strip():
+                        conditions.append(contents[index_x].strip())
+                    index_x += 1
                 htable['selectConditionVector'] = conditions
             elif line == 'HAVING CLAUSE (G):':
-                htable['havingClause'] = contents[idx + 1].strip()
+                htable['havingClause'] = contents[index + 1].strip()
 
     except FileNotFoundError:
         print(f"Error: File '{file_path}' not found.")

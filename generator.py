@@ -2,14 +2,15 @@ import subprocess
 import helper
 
 
+
 def main():
     """
     This is the generator code. It should take in the MF structure and generate the code
     needed to run the query. That generated code should be saved to a
     file (e.g. _generated.py) and then run.
     """
-
     file_path = 'input1.txt'
+
     body = """
     for row in cur:
         if row['quant'] > 10:
@@ -43,7 +44,8 @@ def query():
     input_path = f'{file_path}'
     mf_structure = get_htable(input_path)
 
-    
+
+    _global = []
     {body}
 
     return tabulate.tabulate(_global,
@@ -64,4 +66,4 @@ if "__main__" == __name__:
 
 if "__main__" == __name__:
     main()
-    generate_htable()
+

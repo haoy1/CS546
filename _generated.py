@@ -24,18 +24,19 @@ def query():
     MF_Struct = get_MF_Struct(input_path)
 
     
-    
+
+    _global = []
+
     for row in cur:
         if row['quant'] > 10:
             _global.append(row)
-    
 
     return tabulate.tabulate(_global,
-                        headers="keys", tablefmt="psql")
+                             headers="keys", tablefmt="psql")
+
 
 def main():
     print(query())
 
 if "__main__" == __name__:
     main()
-    

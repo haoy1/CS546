@@ -12,3 +12,4 @@ SELECT CONDITION-VECT([SIGMA]):
 3.state='CT'
 HAVING_CONDITION(G):
 1_sum_quant > 2 * 2_sum_quant or 1_avg_quant > 3_avg_quant
+

@@ -19,7 +19,7 @@ import os
 import psycopg2
 import psycopg2.extras
 import tabulate
-from H_Table import H
+from H_Table import mf_structure
 import collections
 from dotenv import load_dotenv
 
@@ -37,13 +37,11 @@ def query():
 
     cur = conn.cursor()
     cur.execute("SELECT * FROM sales")
-    sales = cur.fetchall()
-        
-    mf_structure = collections.defaultdict(H) 
+    table = cur.fetchall()
 
+    indices = {{'cust': 0, 'prod': 1, 'day': 2, 'month': 3, 'year': 4, 'state': 5, 'quant': 6, 'date': 7}}
     _global = []
     {body}
-
     return tabulate.tabulate(_global,
                         headers="keys", tablefmt="psql")
 
@@ -63,10 +61,11 @@ if "__main__" == __name__:
 
 
 if "__main__" == __name__:
-    mf_structure = helper.get_MF_struct('input1.txt')
-    indices = helper.get_indices()
-    helper.generate_MF_struct('input1.txt')
-    agg_funcs = helper.get_aggregate_functions(mf_structure['listOfAggregateFuncs'])
     body = ""
-    body += helper.processing_algorithm(mf_structure, agg_funcs, indices)
+    mf_structure = helper.generate_MF_struct('input1.txt')
+    
+    helper.generate_MF_table('input1.txt')
+    body += helper.grouping_attribute_process(mf_structure)
+    body += helper.processor_algorithm(mf_structure)
     main(body)
+    print(mf_structure)

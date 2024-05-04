@@ -124,10 +124,9 @@ def generate_MF_struct(file_path):
     # build string of grouping attribute
 
     mf_struct = {}
-    mf_struct["groupingAttributes"] = {item: [] for item in inputs["groupingAttributes"]}
+    mf_struct["groupingAttributes"] = {item for item in inputs["groupingAttributes"]}
 
     mf_struct["groupAggValue"] = {}
-    mf_struct["numOfGroupingAttributes"] = len(inputs["groupingAttributes"])
     mf_struct["numOfGroupingVariables"] = inputs["groupingVariables"]
     # build string of aggregate function list
 
@@ -176,7 +175,7 @@ def generate_MF_struct(file_path):
                     condition_entry["logical_operator"] = logical_operator
 
                 mf_struct["selectConditionVector"].append(condition_entry)
-
+    mf_struct["havingCondition"] = inputs["havingCondition"]
     return mf_struct
 
 
@@ -189,17 +188,16 @@ def generate_MF_table(file_path):
 
     groupingAttr = ""
     for item in inputs["groupingAttributes"]:
-        groupingAttr += "\"" + item + "\":[],"
+        groupingAttr += "\"" + item + "\","
     groupingAttr = groupingAttr[:-1]
     groupingAttr = "{" + groupingAttr + "}"
 
-    length = len(inputs["groupingAttributes"])
     selectedAttributes = inputs['selectedAttribute']
     numOfAttributes = inputs["groupingVariables"]
+    havingCondition = inputs['havingCondition']
     class_content += f"{indentation}'selectedAttribute' : {selectedAttributes},\n"
     class_content += f"{indentation * 2}'groupingAttribute' : {groupingAttr},\n"
     class_content += f"{indentation * 2}'groupAggValue' : {{}},\n"
-    class_content += f"{indentation * 2}'numOfGroupingAttributes' : {length},\n"
     class_content += f"{indentation * 2}'numOfGroupingVariables' : {numOfAttributes},\n"
 
     # build string of aggregate function list
@@ -265,7 +263,7 @@ def generate_MF_table(file_path):
             if(index == len(parts) - 2): break
     selectAttr += "]"
     class_content += f"{indentation * 2}'selectConditionVector' : [{selectAttr},\n"
-
+    class_content += f"{indentation * 2}'havingCondition' : {{'{havingCondition}'}}\n"
     class_content += """
     }
         """
@@ -338,10 +336,12 @@ def processor_algorithm(mf_struct):
             header += f"    if row[{column}] {s} '{condition['value']}': "
 
         res = f"""    
-            group_keys = ", ".join([f"{{row[indices[k]]}}" for k in mf_structure['groupingAttribute'].keys()])
+            group_keys = ", ".join([f"{{row[indices[k]]}}" for k in mf_structure['groupingAttribute']])
             if group_keys not in mf_structure['groupAggValue']:
                 mf_structure['groupAggValue'][group_keys] = {{}}
-
+            for selectedAttribute in mf_structure["selectedAttribute"]:
+                if not selectedAttribute[0].isdigit() and selectedAttribute not in mf_structure['groupingAttribute']:
+                    mf_structure['groupAggValue'][group_keys][selectedAttribute] = row[indices[selectedAttribute]]
             for f_vect in mf_structure["aggregateList"]:
                 number = f_vect["number"]
                 # only care about current grouping_variable, exit if it's not
@@ -386,6 +386,37 @@ def processor_algorithm(mf_struct):
 
     return header
 
+def having_condition(mf_struct):
+    predicate = str(parse_having_condition(mf_struct['havingCondition'],"row"))
+    output = f"""
+    newTable = {{}}
+    for key, row in mf_structure["groupAggValue"].items():
+        if ({predicate}):
+            newTable[key] = row
+    """
+
+    print(output)
+    return output
+
+def parse_having_condition(input_string, prefix):
+    # Define a regular expression pattern to match substrings like "1_x_x"
+    pattern = r'\b\d+_\w+_\w+\b'
+    # Find all matches in the input string
+    matches = re.findall(pattern, input_string)
+    # Create a dictionary to keep track of processed matches
+    processed_matches = {}
+    # Replace each match with the prefix followed by the match enclosed in square brackets
+    for match in matches:
+        if match not in processed_matches:
+            input_string = input_string.replace(match, f'{prefix}[\'{match}\']')
+            processed_matches[match] = True
+    return input_string
+
+    # Example usage:
+    input_string = '1_sum_quant > 2 * 2_sum_quant or 1_avg_quant > 3_avg_quant'
+    prefix = "another_substring_"
+    output_string = enclose_substrings(input_string, prefix)
+    print(output_string)
 
 def generate_output():
     first_scan_output = f""""""
@@ -394,7 +425,7 @@ def generate_output():
     output = []
     header = mf_structure['selectedAttribute']
     output.append(header)
-    for group, aggregates in mf_structure["groupAggValue"].items():
+    for group, aggregates in newTable.items():
         new_row = []
         for key in group.split(", "):
             new_row.append(key)

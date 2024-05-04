@@ -94,7 +94,7 @@ def parse_input(file_path):
         for index, line in enumerate(contents):
             line = line.strip()
             if line.startswith('SELECT ATTRIBUTE(S):'):
-                htable['select'] = contents[index + 1].replace('SELECT ATTRIBUTE(S):', "").split(',')
+                htable['selectedAttribute'] = contents[index + 1].replace('SELECT ATTRIBUTE(S):', "").split(', ')
             elif line.startswith('NUMBER OF GROUPING VARIABLES(n):'):
                 htable['groupingVariables'] = int(
                     contents[index + 1].replace('NUMBER OF GROUPING VARIABLES(n):', "").strip())
@@ -180,8 +180,10 @@ def generate_MF_table(file_path):
     groupingAttr = "{" + groupingAttr + "}"
 
     length = len(inputs["groupingAttributes"])
+    selectedAttributes = inputs['selectedAttribute']
     numOfAttributes = inputs["groupingVariables"]
-    class_content += f"{indentation}'groupingAttribute' : {groupingAttr},\n"
+    class_content += f"{indentation}'selectedAttribute' : {selectedAttributes},\n"
+    class_content += f"{indentation * 2}'groupingAttribute' : {groupingAttr},\n"
     class_content += f"{indentation * 2}'groupAggValue' : {{}},\n"
     class_content += f"{indentation * 2}'numOfGroupingAttributes' : {length},\n"
     class_content += f"{indentation * 2}'numOfGroupingVariables' : {numOfAttributes},\n"
@@ -255,9 +257,7 @@ def grouping_attribute_process(mf_struct):
 def processor_algorithm(mf_struct):
     output = ""
     header = f"""
-    existingGroups = set()
-    #output_cursor_i = 0
-    #output_cursor_j = 0
+
     for row in table:
             """
     for condition in mf_struct["selectConditionVector"]:
@@ -271,14 +271,9 @@ def processor_algorithm(mf_struct):
 
         res = f"""    
         if row[{column}] {s} "{condition['value']}":
-            group = ""
-            for k in mf_structure['groupingAttribute'].keys():
-                group += row[indices[k]]  
-                #mf_structure['output'][output_cursor_i][output_cursor_j] = row[indices[k]]         
-                #output_cursor_j+=1 
-            existingGroups.add(group)
-            if group not in mf_structure['groupAggValue']:
-                mf_structure['groupAggValue'][group] = {{}}
+            group_keys = ", ".join([f"{{row[indices[k]]}}" for k in mf_structure['groupingAttribute'].keys()])
+            if group_keys not in mf_structure['groupAggValue']:
+                mf_structure['groupAggValue'][group_keys] = {{}}
 
             for f_vect in mf_structure["aggregateList"]:
                 number = f_vect["number"]
@@ -293,37 +288,66 @@ def processor_algorithm(mf_struct):
                 targetIndex = indices[target]
                 
                 # initialize value for each aggregate of each distinct groups of grouping attributes
-                if key not in mf_structure["groupAggValue"][group]:
-                    mf_structure["groupAggValue"][group][key] = 0   
+                if key not in mf_structure["groupAggValue"][group_keys]:
+                    mf_structure["groupAggValue"][group_keys][key] = 0   
 
                 match aggregate:
                     case "count":
-                        mf_structure["groupAggValue"][group][key] += 1
+                        mf_structure["groupAggValue"][group_keys][key] += 1
                     case "sum":
-                        mf_structure["groupAggValue"][group][key] += row[targetIndex]                       
+                        mf_structure["groupAggValue"][group_keys][key] += row[targetIndex]                       
                     case "min":
-                        mf_structure["groupAggValue"][group][key] = min(row[targetIndex], mf_structure["groupAggValue"][group][key])
+                        mf_structure["groupAggValue"][group_keys][key] = min(row[targetIndex], mf_structure["groupAggValue"][group_keys][key])
                     case "max":
-                        mf_structure["groupAggValue"][group][key] = max(row[targetIndex], mf_structure["groupAggValue"][group][key])
+                        mf_structure["groupAggValue"][group_keys][key] = max(row[targetIndex], mf_structure["groupAggValue"][group_keys][key])
                                     
                     case "avg":
                         # need to introduce new 'sum' and 'count' keys to calculate average. Those columns can be neglected from output.
                         # TODO: should not need this step if we already have sum calculated
-                        if "sum" not in mf_structure["groupAggValue"][group]:
-                            mf_structure["groupAggValue"][group]["sum"] = 0
-                        if "count" not in mf_structure["groupAggValue"][group]:
-                            mf_structure["groupAggValue"][group]["count"] = 0
+                        if "sum" not in mf_structure["groupAggValue"][group_keys]:
+                            mf_structure["groupAggValue"][group_keys]["sum"] = 0
+                        if "count" not in mf_structure["groupAggValue"][group_keys]:
+                            mf_structure["groupAggValue"][group_keys]["count"] = 0
                         
-                        mf_structure["groupAggValue"][group]["sum"] += row[targetIndex]
-                        mf_structure["groupAggValue"][group]["count"] += 1
-                        mf_structure["groupAggValue"][group][key] = mf_structure["groupAggValue"][group]["sum"] / mf_structure["groupAggValue"][group]["count"]
+                        mf_structure["groupAggValue"][group_keys]["sum"] += row[targetIndex]
+                        mf_structure["groupAggValue"][group_keys]["count"] += 1
+                        mf_structure["groupAggValue"][group_keys][key] = mf_structure["groupAggValue"][group_keys]["sum"] / mf_structure["groupAggValue"][group_keys]["count"]
 
         #output_cursor_i += 1
-        print(mf_structure["groupAggValue"])
+        #print(mf_structure["groupAggValue"])
     """
         header += res
     
     return header
+
+def generate_output():
+    output = f""""""
+
+
+    output += f"""
+    output = []
+    header = mf_structure['selectedAttribute']
+    output.append(header)
+    for item in (iter(mf_structure["groupAggValue"].items())):
+        new_row = []
+        for key in item[0].split(", "):
+            new_row.append(key)
+        for col_name in item[1]:
+            if col_name in header:
+                new_row.append(item[1][col_name])
+        output.append(new_row)
+
+    # Path to the CSV file
+    csv_file_path = 'new_file.csv'
+
+    with open(csv_file_path, 'w', newline='') as csvfile:
+        # Create a CSV writer object
+        csv_writer = csv.writer(csvfile)
+        
+        # Write the data to the CSV file
+        csv_writer.writerows(output)
+    """
+    return output
 
 def parse_condition(condition_str):
     for operator in [' = ', ' != ', ' < ', ' > ', ' <> ']:

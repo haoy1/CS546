@@ -1,22 +1,70 @@
-class H:
-    def __init__(self):
-        self.mf_structure = {}
-        self.mf_structure['cust'] = None
-        self.mf_structure['1_sum_quant'] = 0
-        self.mf_structure['1_avg_quant'] = 0
-        self.mf_structure['2_sum_quant'] = 0
-        self.mf_structure['3_sum_quant'] = 0
-        self.mf_structure['3_avg_quant'] = 0
+mf_structure = {
+        'selectedAttribute' : ['cust', '1_sum_quant', '2_sum_quant', '3_sum_quant'],
+        'groupingAttribute' : {"cust":[]},
+        'groupAggValue' : {},
+        'numOfGroupingAttributes' : 1,
+        'numOfGroupingVariables' : 3,
+        'aggregateList' : [
+            {
 
-    def __getitem__(self, key):
-        return self.mf_structure.get(key, None)
+                "number":1,
+                "aggregate":"sum",
+                "target": "quant",
+                "value": 0,
+            },
+            {
 
-    def __setitem__(self, key, value):
-        self.mf_structure[key] = value
+                "number": 1,
+                "aggregate":"avg",
+                "target": "quant",
+                "value": 0,
+            },
+            {
 
-    def __repr__(self):
-        return f'H({{self.mf_structure}})'
+                "number": 2,
+                "aggregate":"sum",
+                "target": "quant",
+                "value": 0,
+            },
+            {
 
-    def __contains__(self, key):
-        return key in self.mf_structure
+                "number": 3,
+                "aggregate":"sum",
+                "target": "quant",
+                "value": 0,
+            },
+            {
+
+                "number": 3,
+                "aggregate":"avg",
+                "target": "quant",
+                "value": 0,
+            }
+        ],
+        'selectConditionVector' : [
+            {
+                "number": 1,
+                "target": "state",
+                "sign": "=",
+                "value": "NY",
+                "extra_value": ['1.quant > 100'],
+                "logical_operator": "and"
+            },
+        
+            {
+                "number": 2,
+                "target": "state",
+                "sign": "=",
+                "value": "NJ",
+            },
+                
+            {
+                "number": 3,
+                "target": "state",
+                "sign": "=",
+                "value": "CT",
+            },
+                ],
+
+    }
         

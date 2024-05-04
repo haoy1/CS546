@@ -1,9 +1,4 @@
 import re
-import os
-import psycopg2
-import psycopg2.extras
-import tabulate
-from dotenv import load_dotenv
 
 
 def read_file(file_path=''):
@@ -84,6 +79,7 @@ def check_arguments():
 def get_indices():
     return {'cust': 0, 'prod': 1, 'day': 2, 'month': 3, 'year': 4, 'state': 5, 'quant': 6, 'date': 7}
 
+
 def parse_input(file_path):
     htable = {}
 
@@ -150,18 +146,36 @@ def generate_MF_struct(file_path):
 
     for condition in inputs["selectConditionVector"]:
         condition = condition.strip()
-        sub_conditions = condition.split('and')
-        for sub_condition in sub_conditions:
-            sub_condition = sub_condition.strip()
+
+        if ' and ' in condition:
+            parts = condition.split(' and ')
+            logical_operator = 'and'
+        elif ' or ' in condition:
+            parts = condition.split(' or ')
+            logical_operator = 'or'
+        else:
+            parts = [condition]
+            logical_operator = None
+
+        for index, part in enumerate(parts):
+            part = part.strip()
             pattern = r'(\d+)\.(\w+)\s*([<>!=]+)\s*\'([A-Za-z0-9\s]+)\''
-            match = re.match(pattern, sub_condition)
+            match = re.match(pattern, part)
             if match:
-                mf_struct["selectConditionVector"].append({
+                condition_entry = {
                     "number": int(match.group(1)),
                     "target": match.group(2),
                     "sign": match.group(3),
                     "value": match.group(4)
-                })
+                }
+
+                other_parts = parts[:index] + parts[index + 1:]
+
+                if other_parts:
+                    condition_entry["extra_value"] = other_parts
+                    condition_entry["logical_operator"] = logical_operator
+
+                mf_struct["selectConditionVector"].append(condition_entry)
 
     return mf_struct
 
@@ -207,22 +221,48 @@ def generate_MF_table(file_path):
 
     selectAttr = """
         """
-    for v in inputs["selectConditionVector"]:
+    for condition in inputs["selectConditionVector"]:
         pattern = r'(\d+)\.(\w+)\s*([<>!=]+)\s*\'([A-Za-z]+)\''
-        match = re.match(pattern, v)
-        if match:
-            number = int(match.group(1))
-            target = match.group(2)
-            sign = match.group(3)
-            value = match.group(4)
-            temp = f"""{indentation}{{
+        if ' and ' in condition:
+            parts = condition.split(' and ')
+            logical_operator = 'and'
+        elif ' or ' in condition:
+            parts = condition.split(' or ')
+            logical_operator = 'or'
+        else:
+            parts = [condition]
+            logical_operator = None
+
+        for index in range(len(parts)):
+            part = parts[index].strip()
+            match = re.match(pattern, part)
+            if match:
+                number = int(match.group(1))
+                target = match.group(2)
+                sign = match.group(3)
+                value = match.group(4)
+                other_parts = parts[:index] + parts[index + 1:]
+                if other_parts:
+                    temp = f"""{indentation}{{
                 "number": {number},
                 "target": "{target}",
                 "sign": "{sign}",
                 "value": "{value}",
-        {indentation}}},
-    {indentation}"""
-        selectAttr += temp
+                "extra_value": {other_parts},
+                "logical_operator": "{logical_operator}"
+            }},
+        """
+                else:
+                    temp = f"""
+            {{
+                "number": {number},
+                "target": "{target}",
+                "sign": "{sign}",
+                "value": "{value}",
+            }},
+                """
+            selectAttr += temp
+            if(index == len(parts) - 2): break
     selectAttr += "]"
     class_content += f"{indentation * 2}'selectConditionVector' : [{selectAttr},\n"
 
@@ -245,7 +285,7 @@ def grouping_attribute_process(mf_struct):
         entityIndex = get_indices()[entityName]
         body.append(f"{indentation}res = set()")
         body.append(f"{indentation}for row in table:")
-        body.append(f"{indentation*2}res.add(row[{entityIndex}])")
+        body.append(f"{indentation * 2}res.add(row[{entityIndex}])")
         body.append(f"{indentation}mf_structure['groupingAttribute']['{entityName}'] = list(res)")
         body.append("")
     body.append("\n# ------ populate mf-struct with distinct values of grouping attribute ------")
@@ -254,23 +294,50 @@ def grouping_attribute_process(mf_struct):
 
     return '\n'.join(body)
 
+
 def processor_algorithm(mf_struct):
-    output = ""
     header = f"""
 
     for row in table:
-            """
+    """
     for condition in mf_struct["selectConditionVector"]:
         current_grouping_variable = condition['number']
-        s = condition['sign']
+        extra_fields = ' '.join(condition.get('extra_value', []))
 
+        extra_number = None
+        extra_target = None
+        extra_sign = None
+        extra_value = None
+
+        logic_operator = condition.get('logical_operator')
+
+        if extra_fields:
+            pattern = r'(\d+)\.(\w+)\s*([<>!=]+)\s*([\d]+|[A-Za-z]+)'
+            match = re.match(pattern, extra_fields)
+            if match:
+                extra_number = int(match.group(1))
+                extra_target = match.group(2)
+                extra_sign = match.group(3)
+                extra_value_str = match.group(4)
+                extra_value = int(extra_value_str) if extra_value_str and extra_value_str.isdigit() else extra_value_str
+
+        s = condition['sign']
         if s == "=":
             s = "=="
+        if extra_sign and extra_value:
+            if extra_value == '=':
+                extra_sign = "=="
 
         column = get_indices()[condition['target']]
 
+        if logic_operator:
+            if extra_number is not None and extra_number != current_grouping_variable:
+                break
+            header += f"    if row[{column}] {s} '{condition['value']}' {logic_operator} row[{get_indices()[extra_target]}] {extra_sign} {extra_value}:"
+        else:
+            header += f"    if row[{column}] {s} '{condition['value']}': "
+
         res = f"""    
-        if row[{column}] {s} "{condition['value']}":
             group_keys = ", ".join([f"{{row[indices[k]]}}" for k in mf_structure['groupingAttribute'].keys()])
             if group_keys not in mf_structure['groupAggValue']:
                 mf_structure['groupAggValue'][group_keys] = {{}}
@@ -291,17 +358,16 @@ def processor_algorithm(mf_struct):
                 if key not in mf_structure["groupAggValue"][group_keys]:
                     mf_structure["groupAggValue"][group_keys][key] = 0   
 
-                match aggregate:
-                    case "count":
+                if aggregate == "count":
                         mf_structure["groupAggValue"][group_keys][key] += 1
-                    case "sum":
+                elif aggregate == "sum":
                         mf_structure["groupAggValue"][group_keys][key] += row[targetIndex]                       
-                    case "min":
+                elif aggregate == "min":
                         mf_structure["groupAggValue"][group_keys][key] = min(row[targetIndex], mf_structure["groupAggValue"][group_keys][key])
-                    case "max":
+                elif aggregate == "max":
                         mf_structure["groupAggValue"][group_keys][key] = max(row[targetIndex], mf_structure["groupAggValue"][group_keys][key])
                                     
-                    case "avg":
+                elif aggregate == "avg":
                         # need to introduce new 'sum' and 'count' keys to calculate average. Those columns can be neglected from output.
                         # TODO: should not need this step if we already have sum calculated
                         if "sum" not in mf_structure["groupAggValue"][group_keys]:
@@ -317,24 +383,24 @@ def processor_algorithm(mf_struct):
         #print(mf_structure["groupAggValue"])
     """
         header += res
-    
+
     return header
 
+
 def generate_output():
-    output = f""""""
+    first_scan_output = f""""""
 
-
-    output += f"""
+    first_scan_output += f"""
     output = []
     header = mf_structure['selectedAttribute']
     output.append(header)
-    for item in (iter(mf_structure["groupAggValue"].items())):
+    for group, aggregates in mf_structure["groupAggValue"].items():
         new_row = []
-        for key in item[0].split(", "):
+        for key in group.split(", "):
             new_row.append(key)
-        for col_name in item[1]:
-            if col_name in header:
-                new_row.append(item[1][col_name])
+        for col_name in header:
+            if col_name in aggregates:
+                new_row.append(aggregates[col_name])
         output.append(new_row)
 
     # Path to the CSV file
@@ -347,72 +413,4 @@ def generate_output():
         # Write the data to the CSV file
         csv_writer.writerows(output)
     """
-    return output
-
-def parse_condition(condition_str):
-    for operator in [' = ', ' != ', ' < ', ' > ', ' <> ']:
-        if operator in condition_str:
-            left, right = condition_str.split(operator)
-            left = "_".join(left.split('_')[:-1])
-            right = "_".join(right.split('_')[:-1])
-            return left, right, operator
-    return None, None, None
-
-
-def evaluate_having(having_str, mapper):
-    left, right, operator = parse_condition(having_str.lower())
-    if operator:
-        left_mapped = mapper.get(left, f"Unknown mapping for {left}")
-        right_mapped = mapper.get(right, f"Unknown mapping for {right}")
-        operator = operator.replace(' = ', '==').replace('<>', '!=')
-        return f"sales_gb_group[({left_mapped})]['{left}'] {operator} sales_gb_group[({right_mapped})]['{right}']"
-    return ""
-
-
-def get_aggregate_functions(aggregate_funcs):
-    agg_dict = {}
-    for func in aggregate_funcs:
-        key, agg, col = func.split('_')
-        if key not in agg_dict:
-            agg_dict[key] = []
-        agg_dict[key].append((agg, col))
-    return agg_dict
-
-
-def parse_such_that(such_that):
-    groups, conditions = [], []
-    for condition in such_that.split(' and '):
-        left, right, operator = parse_condition(condition)
-        if operator == ' = ' and left and right:
-            groups.append(right)
-        else:
-            conditions.append(condition.replace('=', '=='))
-    conditions = [c.replace('quant', 'quantC') for c in conditions]
-    return ", ".join(groups), " and ".join(conditions)
-
-
-def generate_algorithm_logic(mf_struct):
-    output = ""
-    agg_funcs = get_aggregate_functions(mf_struct['listOfAggregateFuncs'])
-
-    for i, such_that in enumerate(mf_struct['selectConditionVector']):
-        groups, where = parse_such_that(such_that)
-        agg_func = agg_funcs[f"{i + 1}"]
-
-        output += f"\nif {where}:" if where else ""
-        for agg, col in agg_func:
-            agg_method = {
-                'avg': '+', 'sum': '+', 'max': 'max', 'min': 'min', 'count': '+='
-            }.get(agg, '+')
-            action = f"{agg_method} quantC" if agg in ['avg', 'sum',
-                                                       'count'] else f"{agg_method}(current_value, quantC)"
-            output += f"\nsales_gb_group[({groups})]['{i + 1}_{agg}'] = {action}"
-        output += "\nelse:\nsales_gb_group[({groups})] = {initialization logic}"
-
-    having_clause = mf_struct.get('havingClause')
-    if having_clause and having_clause != '-':
-        condition_eval = evaluate_having(having_clause, {func: group for group, func in agg_funcs.items()})
-        output += f"\nif {condition_eval}:"
-        output += "\n    # Add to output or perform other actions"
-
-    return output
+    return first_scan_output

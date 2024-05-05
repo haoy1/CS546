@@ -9,18 +9,12 @@ def main(body):
     file (e.g. _generated.py) and then run.
     """
 
-    # Note: The f allows formatting with variables.
-    #       Also, note the indentation is preserved.
-
-    file_path = f'input1.txt'
-
     tmp = f"""
 import os
 import psycopg2
 import psycopg2.extras
 import tabulate
 from H_Table import mf_structure
-import collections
 from dotenv import load_dotenv
 import csv
 
@@ -65,7 +59,6 @@ if "__main__" == __name__:
     body = ""
     mf_structure = helper.generate_MF_struct('input1.txt')
     helper.generate_MF_table('input1.txt')
-    #body += helper.grouping_attribute_process(mf_structure)
     body += helper.processor_algorithm(mf_structure)
     body += helper.having_condition(mf_structure)
     body += helper.generate_output()

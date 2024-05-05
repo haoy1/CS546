@@ -1,5 +1,6 @@
 import re
 
+
 #TODO: This function is unused. Either delete or to support manual input.
 def read_Inputs():
     print("Please enter all arguments of Phi operator")
@@ -21,9 +22,11 @@ def read_Inputs():
         'HAVING_CONDITION(G)': having_condition
     }
 
+
 # hard-coded indices for table columns. information-schema.columns doesn't give the columns in expected order
 def get_indices():
     return {'cust': 0, 'prod': 1, 'day': 2, 'month': 3, 'year': 4, 'state': 5, 'quant': 6, 'date': 7}
+
 
 # parse input file to a table. Not yet mf-structure, just parsing...
 def parse_input(file_path):
@@ -42,7 +45,8 @@ def parse_input(file_path):
                     contents[index + 1].replace('NUMBER OF GROUPING VARIABLES(n):', "").strip())
             elif line.startswith('GROUPING ATTRIBUTES(V):'):
                 input_table['groupingAttributes'] = [attr.strip() for attr in
-                                                contents[index + 1].replace('GROUPING ATTRIBUTES(V):', "").split(',')]
+                                                     contents[index + 1].replace('GROUPING ATTRIBUTES(V):', "").split(
+                                                         ',')]
             elif line.startswith('F-VECT([F]):'):
                 input_table['listOfAggregateFuncs'] = contents[index + 1].replace('F-VECT([F]):', "").strip().split(',')
             elif line.startswith('SELECT CONDITION-VECT([SIGMA]):'):
@@ -56,7 +60,7 @@ def parse_input(file_path):
                 input_table['selectConditionVector'] = conditions
             elif line == 'HAVING_CONDITION(G):':
                 input_table['havingCondition'] = contents[index + 1].strip()
-    
+
     except FileNotFoundError:
         print(f"Error: File '{file}' not found.")
     except ValueError:
@@ -64,6 +68,7 @@ def parse_input(file_path):
     except Exception as e:
         print(f"Unexpected error occurred: {e}")
     return input_table
+
 
 def generate_MF_table(file_path):
     inputs = parse_input(file_path)
@@ -83,7 +88,7 @@ def generate_MF_table(file_path):
     havingCondition = inputs['havingCondition']
     class_content += f"{indentation}'selectedAttribute' : {selectedAttributes},\n"
     class_content += f"{indentation * 2}'groupingAttribute' : {groupingAttr},\n"
-    class_content += f"{indentation * 2}'output' : {{}},\n"
+    class_content += f"{indentation * 2}'groupAggValue' : {{}},\n"
     class_content += f"{indentation * 2}'numOfGroupingVariables' : {numOfAttributes},\n"
 
     # build string of aggregate function list
@@ -103,53 +108,55 @@ def generate_MF_table(file_path):
     # --------------------------------------------
     class_content += f"{indentation * 2}'aggregateList' : {aggregateAttr},\n"
 
-    selectAttr = """
+    selectAttr = """[
         """
+    conditions = []
     for condition in inputs["selectConditionVector"]:
-        pattern = r'(\d+)\.(\w+)\s*([<>!=]+)\s*(\'[A-Za-z]+\'|\d+)'
-        if ' and ' in condition:
-            parts = condition.split(' and ')
-            logical_operator = 'and'
-        elif ' or ' in condition:
-            parts = condition.split(' or ')
-            logical_operator = 'or'
+        parsed_condition = parse_condition(condition)
+        if parsed_condition:
+            conditions.append(parsed_condition)
+
+    for condition in conditions:
+        if isinstance(condition, list) and len(condition) > 1:
+            temp = """    [   
+                     """
+            for index, con in enumerate(condition):
+                if index == len(condition) - 1:
+                    temp += f"""
+                {{
+                    "number": "{con['number']}",
+                    "target": "{con['target']}",
+                    "sign": "{con['sign']}",
+                    "value": "{con['value']}",
+                }},
+                    """
+                    temp += "\n            ],\n"
+                    break
+                else:
+                    temp += f"""
+                {{
+                    "number": "{con['number']}",
+                    "target": "{con['target']}",
+                    "sign": "{con['sign']}",
+                    "value": "{con['value']}",
+                    "logical_operator": "{con['logical_operator']}",
+                    "extra_value": "{con['extra_value']}",
+                }},           
+                """
+            selectAttr += temp
         else:
-            parts = [condition]
-            logical_operator = None
-
-        for index in range(len(parts)):
-            part = parts[index].strip()
-            match = re.match(pattern, part)
-            if match:
-                if match.group(4).isdigit():
-                    fourth_group = int(match.group(4))
-                else:
-                    fourth_group = match.group(4)
-
-                other_parts = parts[:index] + parts[index + 1:]
-                if other_parts:
-                    temp = f"""{indentation}{{
-                "number": {int(match.group(1))},
-                "target": "{match.group(2)}",
-                "sign": "{match.group(3)}",
-                "value": "{fourth_group}",
-                "extra_value": {other_parts},
-                "logical_operator": "{logical_operator}"
-            }},
-        """
-                else:
-                    temp = f"""
+            for con in condition:
+                temp = f"""
             {{
-                "number": {int(match.group(1))},
-                "target": "{match.group(2)}",
-                "sign": "{match.group(3)}",
-                "value": "{fourth_group}",
+                    "number": "{con['number']}",
+                    "target": "{con['target']}",
+                    "sign": "{con['sign']}",
+                    "value": "{con['value']}",
             }},
                 """
             selectAttr += temp
-            if(index == len(parts) - 2): break
-    selectAttr += "]"
-    class_content += f"{indentation * 2}'selectConditionVector' : [{selectAttr},\n"
+    selectAttr += "\n       ]"
+    class_content += f"{indentation * 2}'selectConditionVector' : {selectAttr},\n"
     class_content += f"{indentation * 2}'havingCondition' : {{'{havingCondition}'}}\n"
     class_content += """
     }
@@ -161,17 +168,50 @@ def generate_MF_table(file_path):
     print(f"File written: {file_path}")
     return file_path
 
+
+def parse_condition(condition):
+    condition = condition.strip()
+    conditions = []
+
+    pattern = r'(\d+)\.(\w+)\s*([<>!=]+)\s*(?:\'([A-Za-z0-9\s]+)\'|([A-Za-z0-9]+))'
+    match = re.match(pattern, condition)
+    if match:
+        condition_entry = {
+            "number": int(match.group(1)),
+            "target": match.group(2),
+            "sign": match.group(3),
+            "value": match.group(4) or match.group(5)
+        }
+        remaining_condition = condition[match.end():]
+
+        if remaining_condition:
+            if ' and ' in remaining_condition:
+                parts = [part.strip() for part in remaining_condition.split(' and ', 1) if part.strip()]
+                condition_entry["logical_operator"] = 'and'
+                condition_entry["extra_value"] = parts
+            elif ' or ' in remaining_condition:
+                parts = [part.strip() for part in remaining_condition.split(' or ', 1) if part.strip()]
+                condition_entry["logical_operator"] = 'or'
+                condition_entry["extra_value"] = parts
+
+        conditions.append(condition_entry)
+
+        for extra_value in condition_entry.get("extra_value", []):
+            conditions.extend(parse_condition(extra_value.strip()))
+
+    return conditions
+
+
 def generate_MF_struct(file_path):
-
-    # retrive the paresd input from file
     inputs = parse_input(file_path)
+    # build string of grouping attribute
 
-    # initialize mf-structure
     mf_struct = {}
     mf_struct["groupingAttributes"] = {item for item in inputs["groupingAttributes"]}
-    mf_struct["output"] = {}
-    mf_struct["numOfGroupingVariables"] = inputs["groupingVariables"]
 
+    mf_struct["groupAggValue"] = {}
+    mf_struct["numOfGroupingVariables"] = inputs["groupingVariables"]
+    # build string of aggregate function list
 
     mf_struct["listOfAggregateFuncs"] = []
     for item in inputs["listOfAggregateFuncs"]:
@@ -180,98 +220,91 @@ def generate_MF_struct(file_path):
             "number": int(number),
             "agg": agg,
             "target": target,
+            "value": 0
         })
+    # --------------------------------------------
 
     mf_struct["selectConditionVector"] = []
     for condition in inputs["selectConditionVector"]:
-        condition = condition.strip()
+        parsed_condition = parse_condition(condition)
+        if parsed_condition:
+            mf_struct["selectConditionVector"].append(parsed_condition)
 
-        if ' and ' in condition:
-            parts = condition.split(' and ')
-            logical_operator = 'and'
-        elif ' or ' in condition:
-            parts = condition.split(' or ')
-            logical_operator = 'or'
-        else:
-            parts = [condition]
-            logical_operator = None
-
-        for index, part in enumerate(parts):
-            part = part.strip()
-            pattern = r'(\d+)\.(\w+)\s*([<>!=]+)\s*(\'[A-Za-z]+\'|\d+)'
-            match = re.match(pattern, part)
-            if match:
-                if match.group(4).isdigit():
-                    fourth_group = int(match.group(4))
-                else:
-                    fourth_group = match.group(4)
-                condition_entry = {
-                    "number": int(match.group(1)),
-                    "target": match.group(2),
-                    "sign": match.group(3),
-                    "value": fourth_group
-                }
-                other_parts = parts[:index] + parts[index + 1:]
-
-                if other_parts:
-                    condition_entry["extra_value"] = other_parts
-                    condition_entry["logical_operator"] = logical_operator
-
-                mf_struct["selectConditionVector"].append(condition_entry)
     mf_struct["havingCondition"] = inputs["havingCondition"]
     return mf_struct
 
-# This algorithm is a modified version of Algorithm 3.1. 
+
+# This algorithm is a modified version of Algorithm 3.1.
 # Instead of scanning the table once for every grouping variable, it scans the table for only once and update aggregate values for grouping variables.
 # However, the worst-case runtime is still O(N^2) since it still needs to look for matching grouping variables in the new h-table for each row in the origional table.
-# This is the first scan of the whole table. 
+# This is the first scan of the whole table.
+def is_number(value):
+    try:
+        int(value)
+        return True
+    except ValueError:
+        return False
+
+
 def processor_algorithm(mf_struct):
     header = f"""
-    # table scan
+
     for row in table:
     """
     for condition in mf_struct["selectConditionVector"]:
-        current_grouping_variable = condition['number']
-        extra_fields = ' '.join(condition.get('extra_value', []))
-        extra_number = None
-        extra_target = None
-        extra_sign = None
-        extra_value = None
+        numbers = []
+        targets = []
+        signs = []
+        values = []
+        current_grouping_variable = 0
+        logical_operators = []
+        if len(condition) > 1:
+            for con in condition:
+                numbers.append(con["number"])
+                targets.append(con["target"])
+                if con["sign"] == '=':
+                    signs.append('==')
+                else:
+                    signs.append(con["sign"])
 
-        logic_operator = condition.get('logical_operator')
-
-        if extra_fields:
-            pattern = r'(\d+)\.(\w+)\s*([<>!=]+)\s*(\'[A-Za-z]+\'|\d+)'
-            match = re.match(pattern, extra_fields)
-            if match:
-                extra_number = int(match.group(1))
-                extra_target = match.group(2)
-                extra_sign = match.group(3)
-                extra_value_str = match.group(4)
-                extra_value = int(extra_value_str) if extra_value_str and extra_value_str.isdigit() else extra_value_str
-
-        s = condition['sign']
-        if s == "=":
-            s = "=="
-        if extra_sign == '=':
-            extra_sign = "=="
-
-        column = get_indices()[condition['target']]
-
-        if logic_operator:
-            if extra_number is not None and extra_number != current_grouping_variable:
-                break
-            header += f"    if row[{column}] {s} {condition['value']} {logic_operator} row[{get_indices()[extra_target]}] {extra_sign} {extra_value}:"
+                values.append(con["value"])
+                logical_operators.append(con.get("logical_operator", None))
+            current_grouping_variable = numbers[0]
         else:
-            header += f"    if row[{column}] {s} {condition['value']}: "
+            for con in condition:
+                numbers = con["number"]
+                targets = con["target"]
+                if con["sign"] == '=':
+                    signs.append('==')
+                else:
+                    signs.append(con["sign"])
+                values.append(con["value"])
+            current_grouping_variable = numbers
+        temp_header = "    if "
+
+        if len(logical_operators) != 0:
+            for num, target, sign, value, logic in zip(numbers, targets, signs, values, logical_operators):
+                if is_number(value):
+                    int(value)
+                    temp_header += f"row[{get_indices()[target]}] {sign} {value}"
+                else:
+                    temp_header += f"row[{get_indices()[target]}] {sign} '{value}'"
+                if logic:
+                    temp_header += f" {logic} "
+            if temp_header.endswith(' and ') or temp_header.endswith(' or '):
+                temp_header = temp_header.rstrip(' and ').rstrip(' or ')
+        else:
+            temp_header += f"row[{get_indices()[targets]}] {signs[0]} '{values[0]}'"
+        temp_header += ":"
+        header += temp_header
 
         res = f"""    
             group_keys = ", ".join([f"{{row[indices[k]]}}" for k in mf_structure['groupingAttribute']])
-            if group_keys not in mf_structure['output']:
-                mf_structure['output'][group_keys] = {{}}
+            if group_keys not in mf_structure['groupAggValue']:
+                mf_structure['groupAggValue'][group_keys] = {{}}
             for selectedAttribute in mf_structure["selectedAttribute"]:
                 if not selectedAttribute[0].isdigit() and selectedAttribute not in mf_structure['groupingAttribute']:
-                    mf_structure['output'][group_keys][selectedAttribute] = row[indices[selectedAttribute]]
+                    mf_structure['groupAggValue'][group_keys][selectedAttribute] = row[indices[selectedAttribute]]
             for f_vect in mf_structure["aggregateList"]:
                 number = f_vect["number"]
                 # only care about current grouping_variable, exit if it's not
@@ -280,39 +313,37 @@ def processor_algorithm(mf_struct):
                 aggregate = f_vect["aggregate"]
                 target = f_vect["target"]
                 value = f_vect["value"]
-  
+
                 key = str(number) + "_" + aggregate + "_" + target
                 targetIndex = indices[target]
-                
+
                 # initialize value for each aggregate of each distinct groups of grouping attributes
-                if key not in mf_structure["output"][group_keys]:
-                    mf_structure["output"][group_keys][key] = 0   
-                    if aggregate == "min":
-                        mf_structure["output"][group_keys][key] = float('inf')
-                    elif aggregate == "max":
-                        mf_structure["output"][group_keys][key] = float('-inf')
+                if key not in mf_structure["groupAggValue"][group_keys]:
+                    mf_structure["groupAggValue"][group_keys][key] = 0   
+
                 if aggregate == "count":
-                        mf_structure["output"][group_keys][key] += 1
+                        mf_structure["groupAggValue"][group_keys][key] += 1
                 elif aggregate == "sum":
-                        mf_structure["output"][group_keys][key] += row[targetIndex]                       
+                        mf_structure["groupAggValue"][group_keys][key] += row[targetIndex]                       
                 elif aggregate == "min":
-                        mf_structure["output"][group_keys][key] = min(row[targetIndex], mf_structure["output"][group_keys][key])
+                        mf_structure["groupAggValue"][group_keys][key] = min(row[targetIndex], mf_structure["groupAggValue"][group_keys][key])
                 elif aggregate == "max":
-                        mf_structure["output"][group_keys][key] = max(row[targetIndex], mf_structure["output"][group_keys][key])
-                                    
+                        mf_structure["groupAggValue"][group_keys][key] = max(row[targetIndex], mf_structure["groupAggValue"][group_keys][key])
+
                 elif aggregate == "avg":
                         # need to introduce new 'sum' and 'count' keys to calculate average. Those columns can be neglected from output.
                         # TODO: should not need this step if we already have sum calculated
-                        if "sum" not in mf_structure["output"][group_keys]:
-                            mf_structure["output"][group_keys]["sum"] = 0
-                        if "count" not in mf_structure["output"][group_keys]:
-                            mf_structure["output"][group_keys]["count"] = 0
-                        
-                        mf_structure["output"][group_keys]["sum"] += row[targetIndex]
-                        mf_structure["output"][group_keys]["count"] += 1
-                        mf_structure["output"][group_keys][key] = mf_structure["output"][group_keys]["sum"] / mf_structure["output"][group_keys]["count"]
+                        if "sum" not in mf_structure["groupAggValue"][group_keys]:
+                            mf_structure["groupAggValue"][group_keys]["sum"] = 0
+                        if "count" not in mf_structure["groupAggValue"][group_keys]:
+                            mf_structure["groupAggValue"][group_keys]["count"] = 0
 
-                        
+                        mf_structure["groupAggValue"][group_keys]["sum"] += row[targetIndex]
+                        mf_structure["groupAggValue"][group_keys]["count"] += 1
+                        mf_structure["groupAggValue"][group_keys][key] = mf_structure["groupAggValue"][group_keys]["sum"] / mf_structure["groupAggValue"][group_keys]["count"]
+
+        #output_cursor_i += 1
+        #print(mf_structure["groupAggValue"])
     """
         header += res
 
@@ -322,7 +353,7 @@ def processor_algorithm(mf_struct):
 # This is the second and the last scan of the whole table.
 # It checks if existing rows in the h-table satisfy the predicates in the having clause. 
 def having_condition(mf_struct):
-    predicate = str(parse_having_condition(mf_struct['havingCondition'],"row"))
+    predicate = str(parse_having_condition(mf_struct['havingCondition'], "row"))
     output = f"""
 
     for group_key in mf_structure["output"].keys():
@@ -345,6 +376,7 @@ def having_condition(mf_struct):
 
     return output
 
+
 def parse_having_condition(input_string, prefix):
     # Define a regular expression pattern to match substrings like "1_x_x"
     pattern = r'\b\d+_\w+_\w+\b'
@@ -362,6 +394,7 @@ def parse_having_condition(input_string, prefix):
     input_string = '1_sum_quant > 2 * 2_sum_quant or 1_avg_quant > 3_avg_quant'
     prefix = "row"
     output_string = "row['1_sum_quant'] > row['2_sum_quant'] and row['1_avg_quant'] > row['3_avg_quant']"
+
 
 def generate_output():
     first_scan_output = f""""""

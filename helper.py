@@ -278,14 +278,14 @@ def processor_algorithm(mf_struct):
                         mf_structure["output"][group_keys][key] = max(row[targetIndex], mf_structure["output"][group_keys][key])
                                     
                 elif aggregate == "avg":
-                        if "sum" not in mf_structure["output"][group_keys]:
-                            mf_structure["output"][group_keys]["sum"] = 0
-                        if "count" not in mf_structure["output"][group_keys]:
-                            mf_structure["output"][group_keys]["count"] = 0
+                        if "sum_{current_grouping_variable}" not in mf_structure["output"][group_keys]:
+                            mf_structure["output"][group_keys]["sum_{current_grouping_variable}"] = 0
+                        if "count_{current_grouping_variable}" not in mf_structure["output"][group_keys]:
+                            mf_structure["output"][group_keys]["count_{current_grouping_variable}"] = 0
                         
-                        mf_structure["output"][group_keys]["sum"] += row[targetIndex]
-                        mf_structure["output"][group_keys]["count"] += 1
-                        mf_structure["output"][group_keys][key] = mf_structure["output"][group_keys]["sum"] / mf_structure["output"][group_keys]["count"]
+                        mf_structure["output"][group_keys]["sum_{current_grouping_variable}"] += row[targetIndex]
+                        mf_structure["output"][group_keys]["count_{current_grouping_variable}"] += 1
+                        mf_structure["output"][group_keys][key] = mf_structure["output"][group_keys]["sum_{current_grouping_variable}"] / mf_structure["output"][group_keys]["count_{current_grouping_variable}"]
 
                         
     """

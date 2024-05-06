@@ -14,7 +14,7 @@ import os
 import psycopg2
 import psycopg2.extras
 import tabulate
-from H_Table import mf_structure
+from mf_structure import mf_structure
 from dotenv import load_dotenv
 import csv
 
